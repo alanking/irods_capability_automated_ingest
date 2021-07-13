@@ -14,7 +14,12 @@ Bring up the docker-compose project and the test suite will run on its own:
 docker-compose --env-file icommands.env up
 ```
 The test suite is one of the services of the docker-compose project, so it will run on its own. The container is tied to the tests running, so it will exit once completed.
+
 The `--env-file` option is required in order to correctly configure the environment for the tests.
+
+The `PIP_PACKAGE` option allows you to specify a Git repository from which to install the ingest package.
+
+The `TEST_CASE` option allows you to specify a test to run. Uses dot-delimited format.
 
 ## Step 3: Bring down the project
 
