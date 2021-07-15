@@ -200,33 +200,33 @@ def read_file(path):
 
 
 def read_data_object(session, path, resc_name = DEFAULT_RESC):
-    #with NamedTemporaryFile() as tf:
-        #session.data_objects.get(path, file=tf.name, forceFlag="", rescName = resc_name)
-        #assert os.path.exists(tf.name)
-        #return read_file(tf.name)
-
     with NamedTemporaryFile() as tf:
-        local_file_path = tf.name
-        logical_path = path
+        session.data_objects.get(path, tf.name, forceFlag="", rescName = resc_name)
+        assert os.path.exists(tf.name)
+        return read_file(tf.name)
+
+    #with NamedTemporaryFile() as tf:
+        #local_file_path = tf.name
+        #logical_path = path
         #with open(local_file_path, 'wb') as f, session.data_objects.open(logical_path, 'r', forceFlag="", rescName = resc_name) as o:
             #import io
             #for chunk in chunks(o, 1024 * io.DEFAULT_BUFFER_SIZE):
                 #f.write(chunk)
 
-        print('I am running PRC version:[' + irods.__version__ + ']')
+        #print('I am running PRC version:[' + irods.__version__ + ']')
 
-        session.data_objects._download(logical_path, local_file_path, 1, forceFlag="", rescName = resc_name)
+        #session.data_objects._download(logical_path, local_file_path, 1, forceFlag="", rescName = resc_name)
 
-        assert os.path.exists(local_file_path)
+        #assert os.path.exists(local_file_path)
 
-        try:
-            with open(local_file_path) as f:
-                print('show me...', f.read(), '...the money')
-        except:
-            print('darn it')
-            pass
+        #try:
+            #with open(local_file_path) as f:
+                #print('show me...', f.read(), '...the money')
+        #except:
+            #print('darn it')
+            #pass
 
-        return read_file(local_file_path)
+        #return read_file(local_file_path)
 
 
 
