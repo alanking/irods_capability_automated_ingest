@@ -200,29 +200,31 @@ def read_file(path):
 
 
 def read_data_object(session, path, resc_name = DEFAULT_RESC):
-    with NamedTemporaryFile() as tf:
-        session.data_objects.get(path, file=tf.name, forceFlag="", rescName = resc_name)
-        assert os.path.exists(tf.name)
-        return read_file(tf.name)
-
     #with NamedTemporaryFile() as tf:
-        #local_file_path = tf.name
-        #logical_path = path
+        #session.data_objects.get(path, file=tf.name, forceFlag="", rescName = resc_name)
+        #assert os.path.exists(tf.name)
+        #return read_file(tf.name)
+
+    with NamedTemporaryFile() as tf:
+        local_file_path = tf.name
+        logical_path = path
         #with open(local_file_path, 'wb') as f, session.data_objects.open(logical_path, 'r', forceFlag="", rescName = resc_name) as o:
             #import io
             #for chunk in chunks(o, 1024 * io.DEFAULT_BUFFER_SIZE):
                 #f.write(chunk)
-#
-        #assert os.path.exists(local_file_path)
-#
-        #try:
-            #with open(local_file_path) as f:
-                #print('show me...', f.read(), '...the money')
-        #except:
-            #print('darn it')
-            #pass
-#
-        #return read_file(local_file_path)
+
+        session.data_objects._download(logical_path, local_file_path, forceFlag="", rescName = resc_name)
+
+        assert os.path.exists(local_file_path)
+
+        try:
+            with open(local_file_path) as f:
+                print('show me...', f.read(), '...the money')
+        except:
+            print('darn it')
+            pass
+
+        return read_file(local_file_path)
 
 
 
