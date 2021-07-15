@@ -13,6 +13,7 @@ from shutil import rmtree
 from os.path import join, realpath, getmtime, getsize, dirname, basename, relpath, isfile
 from irods.session import iRODSSession
 from irods.models import Collection, DataObject
+from irods.data_object import chunks
 from tempfile import NamedTemporaryFile, mkdtemp
 from datetime import datetime
 from irods_capability_automated_ingest.sync_utils import size, app
@@ -303,7 +304,8 @@ class automated_ingest_test_context(object):
 
             options = {}
             with open(local_file_path, 'wb') as f, session.data_objects.open(logical_path, 'r', **options) as o:
-                for chunk in chunks(o, self.READ_BUFFER_SIZE):
+                import io
+                for chunk in chunks(o, 1024 * io.DEFAULT_BUFFER_SIZE):
                     f.write(chunk)
 
             assert os.path.exists(local_file_path)
