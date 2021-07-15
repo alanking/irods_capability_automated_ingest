@@ -213,7 +213,9 @@ def read_data_object(session, path, resc_name = DEFAULT_RESC):
             #for chunk in chunks(o, 1024 * io.DEFAULT_BUFFER_SIZE):
                 #f.write(chunk)
 
-        session.data_objects._download(logical_path, local_file_path, forceFlag="", rescName = resc_name)
+        print('I am running PRC version:[' + irods.__version__ + ']')
+
+        session.data_objects._download(logical_path, local_file_path, 1, forceFlag="", rescName = resc_name)
 
         assert os.path.exists(local_file_path)
 
