@@ -205,23 +205,24 @@ def read_data_object(session, path, resc_name = DEFAULT_RESC):
         #assert os.path.exists(path)
         #return read_file(tf.name)
 
-    local_file_path = '/tmp/whatever'
-    logical_path = path
-    with open(local_file_path, 'wb') as f, session.data_objects.open(logical_path, 'r', forceFlag="", rescName = resc_name) as o:
-        import io
-        for chunk in chunks(o, 1024 * io.DEFAULT_BUFFER_SIZE):
-            f.write(chunk)
+    with NamedTemporaryFile() as tf:
+        local_file_path = tf.name
+        logical_path = path
+        with open(local_file_path, 'wb') as f, session.data_objects.open(logical_path, 'r', forceFlag="", rescName = resc_name) as o:
+            import io
+            for chunk in chunks(o, 1024 * io.DEFAULT_BUFFER_SIZE):
+                f.write(chunk)
 
-    assert os.path.exists(local_file_path)
+        assert os.path.exists(local_file_path)
 
-    try:
-        with open(local_file_path) as f:
-            print('show me...', f.read(), '...the money')
-    except:
-        print('darn it')
-        pass
+        try:
+            with open(local_file_path) as f:
+                print('show me...', f.read(), '...the money')
+        except:
+            print('darn it')
+            pass
 
-    return read_file(local_file_path)
+        return read_file(local_file_path)
 
 
 
