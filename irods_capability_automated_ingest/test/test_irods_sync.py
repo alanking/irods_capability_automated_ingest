@@ -201,6 +201,7 @@ def read_file(path):
 def read_data_object(session, path, resc_name = DEFAULT_RESC):
     with NamedTemporaryFile() as tf:
         session.data_objects.get(path, file=tf.name, forceFlag="", rescName = resc_name)
+        assert os.path.exists(path)
         return read_file(tf.name)
 
 
@@ -298,8 +299,13 @@ class automated_ingest_test_context(object):
             local_file_path = '/tmp/showittome'
             resc_name = 'demoResc'
             session.data_objects.get(logical_path, file=local_file_path, forceFlag="", rescName = resc_name)
-            with open(local_file_path) as f:
-                print('show me...', f.read(), '...the money')
+            assert os.path.exists(local_file_path)
+            try:
+                with open(local_file_path) as f:
+                    print('show me...', f.read(), '...the money')
+            except:
+                print('darn it')
+                pass
 
         self.do_assert_register(resc_names)
 
