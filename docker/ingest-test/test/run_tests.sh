@@ -7,6 +7,8 @@ until nc -z icat.example.org 1247; do
     sleep 1
 done
 
-sleep 10
+sleep 5
+
+pip freeze
 
 python -m unittest ${TEST_CASE}
