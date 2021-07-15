@@ -296,6 +296,7 @@ class automated_ingest_test_context(object):
         with iRODSSession(**get_kwargs()) as session:
             logical_path = '/tempZone/home/rods/a_remote/3'
             local_file_path = '/tmp/showittome'
+            resc_name = 'demoResc'
             session.data_objects.get(logical_path, file=local_file_path, forceFlag="", rescName = resc_name)
             with open(local_file_path) as f:
                 print('show me...', f.read(), '...the money')
