@@ -200,10 +200,29 @@ def read_file(path):
 
 
 def read_data_object(session, path, resc_name = DEFAULT_RESC):
-    with NamedTemporaryFile() as tf:
-        session.data_objects.get(path, file=tf.name, forceFlag="", rescName = resc_name)
-        assert os.path.exists(path)
-        return read_file(tf.name)
+    #with NamedTemporaryFile() as tf:
+        #session.data_objects.get(path, file=tf.name, forceFlag="", rescName = resc_name)
+        #assert os.path.exists(path)
+        #return read_file(tf.name)
+
+    local_file_path = '/tmp/whatever'
+    logical_path = path
+    with open(local_file_path, 'wb') as f, session.data_objects.open(logical_path, 'r', forceFlag="", rescName = resc_name) as o:
+        import io
+        for chunk in chunks(o, 1024 * io.DEFAULT_BUFFER_SIZE):
+            f.write(chunk)
+
+    assert os.path.exists(local_file_path)
+
+    try:
+        with open(local_file_path) as f:
+            print('show me...', f.read(), '...the money')
+    except:
+        print('darn it')
+        pass
+
+    return read_file(local_file_path)
+
 
 
 def create_resource(session, resc_name, resc_dict, root = None):
@@ -294,27 +313,6 @@ class automated_ingest_test_context(object):
     def do_register2(self, job_name = DEFAULT_JOB_NAME, resc_names=[DEFAULT_RESC]):
         workers = start_workers(1)
         wait_for(workers, job_name)
-
-        with iRODSSession(**get_kwargs()) as session:
-            logical_path = '/tempZone/home/rods/a_remote/3'
-            local_file_path = '/tmp/showittome'
-            resc_name = 'demoResc'
-
-            #session.data_objects.get(logical_path, file=local_file_path, forceFlag="", rescName = resc_name)
-
-            options = {}
-            with open(local_file_path, 'wb') as f, session.data_objects.open(logical_path, 'r', **options) as o:
-                import io
-                for chunk in chunks(o, 1024 * io.DEFAULT_BUFFER_SIZE):
-                    f.write(chunk)
-
-            assert os.path.exists(local_file_path)
-            try:
-                with open(local_file_path) as f:
-                    print('show me...', f.read(), '...the money')
-            except:
-                print('darn it')
-                pass
 
         self.do_assert_register(resc_names)
 
