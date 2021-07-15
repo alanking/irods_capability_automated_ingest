@@ -292,6 +292,14 @@ class automated_ingest_test_context(object):
     def do_register2(self, job_name = DEFAULT_JOB_NAME, resc_names=[DEFAULT_RESC]):
         workers = start_workers(1)
         wait_for(workers, job_name)
+
+        with iRODSSession(**get_kwargs()) as session:
+            logical_path = '/tempZone/home/rods/a_remote/3'
+            local_file_path = '/tmp/showittome'
+            session.data_objects.get(logical_path, file=local_file_path, forceFlag="", rescName = resc_name)
+            with open(local_file_path) as f:
+                print('show me...', f.read(), '...the money')
+
         self.do_assert_register(resc_names)
 
     def do_assert_register(self, resc_names):
