@@ -298,7 +298,14 @@ class automated_ingest_test_context(object):
             logical_path = '/tempZone/home/rods/a_remote/3'
             local_file_path = '/tmp/showittome'
             resc_name = 'demoResc'
-            session.data_objects.get(logical_path, file=local_file_path, forceFlag="", rescName = resc_name)
+
+            #session.data_objects.get(logical_path, file=local_file_path, forceFlag="", rescName = resc_name)
+
+            options = {}
+            with open(local_file_path, 'wb') as f, session.data_objects.open(logical_path, 'r', **options) as o:
+                for chunk in chunks(o, self.READ_BUFFER_SIZE):
+                    f.write(chunk)
+
             assert os.path.exists(local_file_path)
             try:
                 with open(local_file_path) as f:
