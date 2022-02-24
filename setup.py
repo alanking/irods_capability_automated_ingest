@@ -25,7 +25,7 @@ setup(
     classifiers=[
         'License :: OSI Approved :: BSD License',
         'Development Status :: 4 - Beta',
-        'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.8',
         'Operating System :: POSIX :: Linux'
     ],
     keywords='irods automated ingest landingzone filesystem',
@@ -34,14 +34,14 @@ setup(
         'minio',
         'flask',
         'flask-restful',
-        'python-irodsclient==1.1.1',
+        'python-irodsclient>=1.1.1, <2.0.0',
         'python-redis-lock>=3.2.0',
-        'redis>=2.10.6, <3.0.0',
-        'celery[redis]>=4.2.1, <4.3.0',
+        'redis>=3.4.1, <4.0.0',
+        'celery[redis]>=5.2.2, <5.3.0',
         'scandir',
         'structlog>=18.1.0',
         'progressbar2',
-        'billiard>=3.5.0.2, <3.6.0'
+        'billiard>=3.6.4.0, <4.0'
     ],
     setup_requires=['setuptools>=38.6.0'],
     entry_points={
