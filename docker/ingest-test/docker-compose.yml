@@ -41,8 +41,8 @@ services:
     build:
       context: test
     environment:
-      - "PIP_PACKAGE"
-      - "TEST_CASE"
+      - "PIP_PACKAGE=git+https://github.com/alanking/irods_capability_automated_ingest@821beea70e03b9a9b5a56fb1311a96d3db742221"
+      - "TEST_CASE=irods_capability_automated_ingest.test.test_irods_sync.test_ingest_options"
       - "IRODS_PORT"
       - "IRODS_HOST"
       - "IRODS_USER_NAME"

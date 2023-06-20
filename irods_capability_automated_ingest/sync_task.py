@@ -158,6 +158,9 @@ def sync_path(self, meta):
 
     logger = sync_logging.get_sync_logger(logging_config)
 
+
+    logger.error("I'm in sync_path!")
+
     file_regex = [re.compile(r) for r in exclude_file_name]
     dir_regex = [re.compile(r) for r in exclude_directory_name]
 
@@ -223,6 +226,8 @@ def sync_entry(self, meta, cls, datafunc, metafunc):
     config=meta["config"]
     logging_config=config["log"]
     logger=sync_logging.get_sync_logger(logging_config)
+
+    logger.error("I'm in sync_entry!")
 
     event_handler=custom_event_handler(meta)
     max_retries=event_handler.max_retries()
