@@ -13,6 +13,8 @@ import irods.keywords as kw
 import base64
 import ssl
 import threading
+import hashlib
+import minio
 
 def validate_target_collection(meta, logger):
     # root cannot be the target collection
@@ -95,6 +97,7 @@ def annotate_metadata_for_special_data_objs(meta, session, source_physical_fullp
             os.path.join(os.path.dirname(source_physical_fullpath), os.readlink(source_physical_fullpath)),
             'automated_ingest')
 
+
 def register_file(hdlr_mod, logger, session, meta, **options):
     dest_dataobj_logical_fullpath = meta["target"]
     source_physical_fullpath = meta["path"]
@@ -121,7 +124,7 @@ def register_file(hdlr_mod, logger, session, meta, **options):
     options[kw.DATA_SIZE_KW] = str(meta['size'])
     options[kw.DATA_MODIFY_KW] = str(int(meta['mtime']))
 
-    logger.info("registering object " + dest_dataobj_logical_fullpath + ", options = " + str(options))
+    logger.info("registering object " + dest_dataobj_logical_fullpath + "source_physical_fullpath: " + source_physical_fullpath+ ", options = " + str(options))
     session.data_objects.register(phypath_to_register_in_catalog, dest_dataobj_logical_fullpath, **options)
 
     logger.info("succeeded", task="irods_register_file", path = source_physical_fullpath)
@@ -152,7 +155,13 @@ def get_s3_client(meta):
     s3_secure_connection = meta.get('s3_secure_connection')
     if s3_secure_connection is None:
         s3_secure_connection = True
-    client = Minio(
+
+    isLocalHost = ['localhost', '127.0.0.1']
+    #Minio server running locally causes SSL error if secure set to True
+    if endpoint_domain.split(":")[0] in isLocalHost:
+        s3_secure_connection = False
+
+    client = minio.Minio(
                  endpoint_domain,
                  region=s3_region_name,
                  access_key=s3_access_key,
@@ -161,9 +170,10 @@ def get_s3_client(meta):
                  http_client=httpClient)
     return client
 
-
 def upload_file_from_S3(logger, session, meta, src, dest, offset=0, **options):
 
+    #Could pass in as parameter when running ingest job, keep in meta
+    #May be needed for files uploaded to AWS S3 with multi-part upload
     BUFFER_SIZE = 1024
     client = get_s3_client(meta)
     path_list = src.lstrip('/').split('/', 1)
@@ -173,6 +183,7 @@ def upload_file_from_S3(logger, session, meta, src, dest, offset=0, **options):
         bucket_name = path_list[0]
         object_name = path_list[1]
 
+    #Pulled from put function from data_object_manager in PRC
     #Set operation type to trigger acPostProcForPut
     if kw.OPR_TYPE_KW not in options:
         options[kw.OPR_TYPE_KW] = 1 #PUT_OPR
@@ -181,31 +192,61 @@ def upload_file_from_S3(logger, session, meta, src, dest, offset=0, **options):
     if kw.REG_CHKSUM_KW not in options:
         options[kw.REG_CHKSUM_KW] = ''
 
+    #For appending to file
     if offset!=0:
         tfd = session.data_objects.open(dest, "a", **options)
         tfd.seek(offset)
     else:
         tfd = session.data_objects.open(dest, "w", **options)
-    response = client.get_partial_object(bucket_name, object_name, offset)
+
+    response = client.get_object(bucket_name, object_name, offset)
     etag = response.getheader('Etag').replace('"','')
-    hash_md5 = hashlib.md5()
-    for data in response.stream(amt=BUFFER_SIZE):
-        #TODO CALCULATE MD5SUM on the fly for the data chunks.
-        hash_md5.update(data)
-        tfd.write(data)
+    recreated_etag = None
+    #Doing the put here because session.data_objects.put will not recognize the file/directory (aka bucket) since it is not contained on the local fs
+    #Why we use minio to get the data object from the bucket and to write the contents to the destination data object
+    #Also calculating checksum 
+    #Preliminary way of determining if file is multipart or not; etag from amazonS3 will be >32 for multipart, 32 for regular
+    if len(etag)>32:
+        logger.info("Multipart object", task="irods_S3upload_file")
+        c_size = meta.get('s3_multipart_chunksize')
+        if not c_size: c_size=8
+        chksums = []
+        #Calculating md5 sum for each chunk
+        for data in response.stream(amt=c_size*1024*1024):
+            tfd.write(data)
+            hash_md5 = hashlib.md5()
+            hash_md5.update(data)
+            chksums.append(hash_md5)
+
+        tfd.close()
+        #byte string so need b
+        digests = b''.join(c.digest() for c in chksums)
+        #Checksum of concatenated checksums
+        hash_md5 = hashlib.md5()
+        hash_md5.update(digests)
+        #Number of parts in multi-part upload is added with '-' to the end
+        n_parts = len(chksums)
+        if n_parts > 1 :
+            recreated_etag = hash_md5.hexdigest()+"-"+str(n_parts)
+        else:
+            logger.info("Incorrect multipart chunksize or error computing multipart checksum")
+    else:
+        logger.info("Non-multipart object", task="irods_S3upload_file")
+        hash_md5 = hashlib.md5()
+        for data in response.stream(amt=BUFFER_SIZE):
+            hash_md5.update(data)
+            tfd.write(data)
+        tfd.close()
+        recreated_etag = hash_md5.hexdigest()
+
     response.release_conn()
-    tfd.close()
-
-    etagrods = hash_md5.hexdigest()
-    if etag!=etagrods:
-        logger.info("checksums do not match! etag {} etagrods {}".format(etag,etagrods), task="irods_S3upload_file", path=src)
-
+    if etag!=recreated_etag:
+        logger.info("checksums do not match! etag {} recreated etag {}".format(etag,recreated_etag), task="irods_S3upload_file", path=src)
 
 def upload_file(hdlr_mod, logger, session, meta, **options):
     dest_dataobj_logical_fullpath = meta["target"]
     source_physical_fullpath = meta["path"]
     b64_path_str = meta.get('b64_path_str')
-
     event_handler = custom_event_handler(meta)
     resc_name = event_handler.to_resource(session, **options)
     if resc_name is not None:
@@ -216,14 +257,13 @@ def upload_file(hdlr_mod, logger, session, meta, **options):
 
     s3_keypair = meta.get("s3_keypair")
     if s3_keypair:
-        logger.info("uploading object " + source_physical_fullpath + "from S3, options = " + str(options))
+        logger.info("uploading object " + source_physical_fullpath + " from S3, options = " + str(options))
         upload_file_from_S3(logger, session, meta, source_physical_fullpath, dest_dataobj_logical_fullpath, offset=0, **options)
         logger.info("succeeded", task="irods_S3upload_file", path=source_physical_fullpath)
     else:
-        logger.info("uploading object " + dest_dataobj_logical_fullpath + "from local FS, options = " + str(options))
+        logger.info("uploading object " + dest_dataobj_logical_fullpath + " from local FS, options = " + str(options))
         session.data_objects.put(source_physical_fullpath, dest_dataobj_logical_fullpath, **options)
         logger.info("succeeded", task="irods_FSupload_file", path=source_physical_fullpath)
-
     annotate_metadata_for_special_data_objs(meta, session, source_physical_fullpath, dest_dataobj_logical_fullpath)
 
 
@@ -463,7 +503,7 @@ def sync_data_from_file(hdlr_mod, meta, logger, content, **options):
         elif session.collections.exists(target):
             raise Exception("sync: cannot sync file " + path + " to collection " + target)
         else:
-            exists = False
+            exists = False 
 
     op = event_handler.operation(session, **options)
 

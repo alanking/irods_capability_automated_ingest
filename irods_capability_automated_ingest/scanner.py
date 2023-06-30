@@ -168,6 +168,11 @@ class s3_scanner(scanner):
         s3_secure_connection = meta.get('s3_secure_connection')
         if s3_secure_connection is None:
             s3_secure_connection = True
+       
+        isLocalHost = ['localhost', '127.0.0.1']
+        #Minio server running locally causes SSL error if secure set to True
+        if endpoint_domain.split(":")[0] in isLocalHost:
+            s3_secure_connection = False
         client = Minio(
             endpoint_domain,
             access_key=s3_access_key,
