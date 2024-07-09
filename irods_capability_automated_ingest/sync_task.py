@@ -288,6 +288,8 @@ def sync_entry(self, meta, cls, datafunc, metafunc):
     if scanner_instance is None:
         raise RuntimeError("'scanner' not found in options. Cannot sync data.")
 
+    raise RuntimeError("Intentionally breaking this to watch meta get logged!")
+
     path = meta["path"]
     target = meta["target"]
     config = meta["config"]

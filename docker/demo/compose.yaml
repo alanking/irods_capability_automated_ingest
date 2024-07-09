@@ -51,7 +51,7 @@ services:
         command: server --address ":19000" --console-address ":19001" /data/minio-s3
         ports:
             - "19000:19000" # This is the port to use for issuing S3 requests.
-            - "19001:19001" # Change this port, if needed, to access the MinIO console webpage.
+            - "3389:19001" # Change this port, if needed, to access the MinIO console webpage.
         volumes:
             - minio_bucket_volume:/data/minio-s3
         environment: 
