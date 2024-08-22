@@ -216,6 +216,28 @@ def handle_list(args):
     print(json.dumps(jobs))
     return 0
 
+def handle_remove(args):
+    check_event_handler(args.event_handler)
+
+    data = {}
+    data["restart_queue"] = args.restart_queue
+    data["path_queue"] = args.path_queue
+    data["file_queue"] = args.file_queue
+    data["target_collection"] = args.target_collection
+    data["job_name"] = args.job_name if args.job_name else str(uuid1())
+    #data["ignore_cache"] = args.ignore_cache
+    #data["initial_ingest"] = args.initial_ingest
+    data["event_handler"] = args.event_handler
+    data["config"] = get_config(args)
+    data["synchronous"] = args.synchronous
+    data["progress"] = args.progress
+    data["profile"] = args.profile
+    data["files_per_task"] = args.files_per_task
+    #data["exclude_file_name"] = ["".join(r) for r in args.exclude_file_name]
+    #data["exclude_directory_name"] = ["".join(r) for r in args.exclude_directory_name]
+    data["idle_disconnect_seconds"] = args.irods_idle_disconnect_seconds
+
+    return sync_actions.remove_collection(data)
 
 def main():
     parser = argparse.ArgumentParser(description="continuous synchronization utility")
@@ -423,6 +445,115 @@ def main():
     )
     add_arguments(parser_list)
     parser_list.set_defaults(func=handle_list)
+
+    parser_remove = subparsers.add_parser(
+        "remove",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        help="Recursively remove the target collection.",
+    )
+    parser_remove.add_argument(
+        "target_collection",
+        metavar="TARGET_COLLECTION",
+        type=str,
+        help="Target iRODS collection for removal.",
+    )
+    parser_remove.add_argument(
+        "--file_queue",
+        action="store",
+        type=str,
+        default="file",
+        help="Name for the file queue.",
+    )
+    parser_remove.add_argument(
+        "--path_queue",
+        action="store",
+        type=str,
+        default="path",
+        help="Name for the path queue.",
+    )
+    parser_remove.add_argument(
+        "--restart_queue",
+        action="store",
+        type=str,
+        default="restart",
+        help="Name for the restart queue.",
+    )
+    parser_remove.add_argument(
+        "--event_handler",
+        action="store",
+        type=str,
+        default=None,
+        help="Path to event handler file",
+    )
+    parser_remove.add_argument(
+        "--job_name",
+        action="store",
+        type=str,
+        default=None,
+        help="Reference name for ingest job (defaults to generated uuid)",
+    )
+    #parser_remove.add_argument(
+        #"--ignore_cache",
+        #action="store_true",
+        #default=False,
+        #help="Ignore last sync time in cache - like starting a new sync",
+    #)
+    #parser_remove.add_argument(
+        #"--initial_ingest",
+        #action="store_true",
+        #default=False,
+        #help="Use this flag on initial ingest to avoid check for data object paths already in iRODS.",
+    #)
+    parser_remove.add_argument(
+        "--synchronous",
+        action="store_true",
+        default=False,
+        help="Block until sync job is completed.",
+    )
+    parser_remove.add_argument(
+        "--progress",
+        action="store_true",
+        default=False,
+        help="Show progress bar and task counts (must have --synchronous flag).",
+    )
+    parser_remove.add_argument(
+        "--profile",
+        action="store_true",
+        default=False,
+        help="Generate JSON file of system activity profile during ingest.",
+    )
+    parser_remove.add_argument(
+        "--files_per_task",
+        action="store",
+        type=int,
+        default="50",
+        help="Number of paths to process in a given task on the queue.",
+    )
+    #parser_remove.add_argument(
+        #"--exclude_file_name",
+        #type=list,
+        #nargs="+",
+        #action="store",
+        #default="none",
+        #help='a list of space-separated python regular expressions defining the file names to exclude such as "(\S+)exclude" "(\S+)\.hidden"',
+    #)
+    #parser_remove.add_argument(
+        #"--exclude_directory_name",
+        #type=list,
+        #nargs="+",
+        #action="store",
+        #default="none",
+        #help='a list of space-separated python regular expressions defining the directory names to exclude such as "(\S+)exclude" "(\S+)\.hidden"',
+    #)
+    parser_remove.add_argument(
+        "--irods_idle_disconnect_seconds",
+        action="store",
+        type=int,
+        default=60,
+        help="irods disconnect time in seconds",
+    )
+    add_arguments(parser_remove)
+    parser_remove.set_defaults(func=handle_remove)
 
     args = parser.parse_args()
     sys.exit(args.func(args))

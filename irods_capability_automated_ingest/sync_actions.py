@@ -1,5 +1,5 @@
 from . import sync_logging, sync_irods
-from .sync_task import restart
+from .sync_task import restart, remove_collection_task
 from .sync_job import sync_job
 from .sync_utils import get_redis
 from .redis_key import redis_key_handle
@@ -14,6 +14,61 @@ import textwrap
 
 uuid_ = uuid.uuid4().hex
 
+def store_event_handler(redis_instance, data, job):
+    event_handler = data.get("event_handler")
+    event_handler_data = data.get("event_handler_data")
+    event_handler_path = data.get("event_handler_path")
+
+    # investigate -- kubernetes
+    if (
+        event_handler is None
+        and event_handler_path is not None
+        and event_handler_data is not None
+    ):
+        event_handler = "event_handler" + uuid1().hex
+        hdlr2 = event_handler_path + "/" + event_handler + ".py"
+        with open(hdlr2, "w") as f:
+            f.write(event_handler_data)
+        cleanup_list = [hdlr2.encode("utf-8")]
+        data["event_handler"] = event_handler
+    # if no argument is given, use default event_handler
+    elif event_handler is None:
+        # constructing redis_key and putting default event_handler into redis
+        uuid_ = uuid.uuid4().hex
+        event_handler_key = redis_key_handle(
+            redis_instance, "custom_event_handler", job.name() + "::" + uuid_
+        )
+        content_string = textwrap.dedent(
+            """
+        from irods_capability_automated_ingest.core import Core 
+        from irods_capability_automated_ingest.utils import Operation
+        class event_handler(Core):
+            @staticmethod
+            def operation(session, meta, **options):
+                return Operation.REGISTER_SYNC"""
+        )
+        event_handler_key.set_value(content_string)
+
+        # putting redis_key into meta map
+        data["event_handler_key"] = event_handler_key.get_key()
+
+        cleanup_list = []
+    else:
+        # constructing redis_key and putting custom_event_handler into redis
+        with open(event_handler, "r") as f:
+            content_string = f.read()
+
+        uuid_ = uuid.uuid4().hex
+        event_handler_key = redis_key_handle(
+            redis_instance, "custom_event_handler", job.name() + "::" + uuid_
+        )
+        event_handler_key.set_value(content_string)
+
+        # putting redis_key into meta map
+        data["event_handler_key"] = event_handler_key.get_key()
+
+        cleanup_list = []
+    job.cleanup_handle().set_value(json.dumps(cleanup_list))
 
 def stop_job(job_name, config):
     logger = sync_logging.get_sync_logger(config["log"])
@@ -152,62 +207,6 @@ def start_job(data):
 
     sync_irods.validate_target_collection(data_copy, logger)
 
-    def store_event_handler(data, job):
-        event_handler = data.get("event_handler")
-        event_handler_data = data.get("event_handler_data")
-        event_handler_path = data.get("event_handler_path")
-
-        # investigate -- kubernetes
-        if (
-            event_handler is None
-            and event_handler_path is not None
-            and event_handler_data is not None
-        ):
-            event_handler = "event_handler" + uuid1().hex
-            hdlr2 = event_handler_path + "/" + event_handler + ".py"
-            with open(hdlr2, "w") as f:
-                f.write(event_handler_data)
-            cleanup_list = [hdlr2.encode("utf-8")]
-            data["event_handler"] = event_handler
-        # if no argument is given, use default event_handler
-        elif event_handler is None:
-            # constructing redis_key and putting default event_handler into redis
-            uuid_ = uuid.uuid4().hex
-            event_handler_key = redis_key_handle(
-                r, "custom_event_handler", job.name() + "::" + uuid_
-            )
-            content_string = textwrap.dedent(
-                """
-            from irods_capability_automated_ingest.core import Core 
-            from irods_capability_automated_ingest.utils import Operation
-            class event_handler(Core):
-                @staticmethod
-                def operation(session, meta, **options):
-                    return Operation.REGISTER_SYNC"""
-            )
-            event_handler_key.set_value(content_string)
-
-            # putting redis_key into meta map
-            data_copy["event_handler_key"] = event_handler_key.get_key()
-
-            cleanup_list = []
-        else:
-            # constructing redis_key and putting custom_event_handler into redis
-            with open(event_handler, "r") as f:
-                content_string = f.read()
-
-            uuid_ = uuid.uuid4().hex
-            event_handler_key = redis_key_handle(
-                r, "custom_event_handler", job.name() + "::" + uuid_
-            )
-            event_handler_key.set_value(content_string)
-
-            # putting redis_key into meta map
-            data_copy["event_handler_key"] = event_handler_key.get_key()
-
-            cleanup_list = []
-        job.cleanup_handle().set_value(json.dumps(cleanup_list))
-
     r = get_redis(config)
     job = sync_job.from_meta(data_copy)
     with redis_lock.Lock(r, "lock:periodic"):
@@ -215,7 +214,7 @@ def start_job(data):
             logger.error("job {0} already exists".format(job_name))
             raise Exception("job {0} already exists".format(job_name))
 
-        store_event_handler(data_copy, job)
+        store_event_handler(r, data_copy, job)
 
     if interval is not None:
         r.rpush("periodic", job_name.encode("utf-8"))
@@ -233,3 +232,43 @@ def start_job(data):
                 return -1
             else:
                 return monitor_job(job_name, progress, config)
+
+def remove_collection(data):
+    config = data["config"]
+    logging_config = config["log"]
+    target_collection = data["target_collection"]
+    job_name = data["job_name"]
+    restart_queue = data["restart_queue"]
+    sychronous = data["synchronous"]
+    progress = data["progress"]
+    logger = sync_logging.get_sync_logger(logging_config)
+    data_copy = data.copy()
+
+    #data_copy["root"] = src_abs
+    #data_copy["path"] = src_abs
+    data_copy["path"] = target_collection
+    data_copy["target"] = target_collection
+
+    sync_irods.validate_target_collection(data_copy, logger)
+
+    r = get_redis(config)
+    job = sync_job.from_meta(data_copy)
+    with redis_lock.Lock(r, "lock:periodic"):
+        if job.cleanup_handle().get_value() is not None:
+            logger.error("job {0} already exists".format(job_name))
+            raise Exception("job {0} already exists".format(job_name))
+
+        store_event_handler(r, data_copy, job)
+
+    r.rpush("singlepass", job_name.encode("utf-8"))
+    if not sychronous:
+        remove_collection_task.s(data_copy).apply_async(queue=restart_queue)
+        #restart.s(data_copy).apply_async(queue=restart_queue, task_id=job_name)
+    else:
+        res = remove_collection_task.s(data_copy).apply()
+        if res.failed():
+            print(res.traceback)
+            job.cleanup()
+            return -1
+        else:
+            return monitor_job(job_name, progress, config)

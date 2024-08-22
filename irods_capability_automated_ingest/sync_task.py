@@ -19,6 +19,7 @@ from celery.signals import task_prerun, task_postrun
 from billiard import current_process
 from .char_map_util import translate_path
 
+from irods.exception import CollectionDoesNotExist, DataObjectDoesNotExist, PycommandsException
 
 class ContinueException(Exception):
     pass
@@ -204,6 +205,52 @@ def restart(meta):
         )
         raise
 
+@app.task(base=RestartTask)
+def remove_collection_task(meta):
+    logical_path = meta["target_collection"]
+    meta_for_task = meta.copy()
+    meta_for_task["queue_name"] = meta["path_queue"]
+    meta_for_task["task"] = "remove_collection"
+    meta_for_task["path"] = logical_path
+    meta_for_task["target_collection"] = logical_path
+    enqueue_task(remove_collection, meta_for_task)
+
+@app.task(bind=True, base=IrodsTask)
+def remove_collection(self, meta):
+    config = meta["config"]
+    logging_config = config["log"]
+    logger = sync_logging.get_sync_logger(logging_config)
+    event_handler = custom_event_handler(meta)
+    logical_path = meta["target_collection"]
+    session = sync_irods.irods_session(event_handler.get_module(), meta, logger)
+    try:
+        target_collection = session.collections.get(logical_path)
+    except CollectionDoesNotExist:
+        # Print an error message here because the exception doesn't tell you what doesn't exist.
+        print(f"Collection [{logical_path}] does not exist.")
+        raise
+    meta_for_task = meta.copy()
+    files_per_task = meta.get("files_per_task")
+    data_objects_to_remove = []
+    meta_for_task["queue_name"] = meta["file_queue"]
+    meta_for_task["task"] = "remove_data_objects"
+    meta_for_task["path"] = logical_path
+    for data_object in target_collection.data_objects:
+        data_objects_to_remove.append(data_object.path)
+        if len(data_objects_to_remove) >= files_per_task:
+            meta_for_task["data_objects_to_remove"] = data_objects_to_remove
+            enqueue_task(remove_data_objects, meta_for_task)
+            data_objects_to_remove.clear()
+    if len(data_objects_to_remove) > 0:
+        meta_for_task["data_objects_to_remove"] = data_objects_to_remove
+        enqueue_task(remove_data_objects, meta_for_task)
+        data_objects_to_remove.clear()
+    meta_for_task["queue_name"] = meta["path_queue"]
+    meta_for_task["task"] = "remove_collection"
+    for subcollection in target_collection.subcollections:
+        meta_for_task["path"] = subcollection.path
+        meta_for_task["target_collection"] = subcollection.path
+        enqueue_task(remove_collection_task, meta_for_task)
 
 @app.task(bind=True, base=IrodsTask)
 def sync_path(self, meta):
@@ -430,6 +477,25 @@ def sync_files(self, _meta):
             sync_irods.sync_metadata_from_file,
         )
 
+@app.task(bind=True, base=IrodsTask)
+def remove_data_objects(self, meta):
+    """Remove a data object, optionally omitting rename to trash collection."""
+    config = meta["config"]
+    logging_config = config["log"]
+    logger = sync_logging.get_sync_logger(logging_config)
+    event_handler = custom_event_handler(meta)
+    session = sync_irods.irods_session(event_handler.get_module(), meta, logger)
+    logical_paths = meta["data_objects_to_remove"]
+    for logical_path in logical_paths:
+        try:
+            session.data_objects.unlink(logical_path, force=True)
+        except DataObjectDoesNotExist:
+            print(f"Data object [{logical_path}] does not exist.")
+            # raise
+            continue
+        except PycommandsException as e:
+            print(f"Exception occurred while removing data object [{logical_path}]: {e}")
+            continue
 
 # Use the built-in version of scandir/walk if possible, otherwise
 # use the scandir module version
