@@ -8,6 +8,8 @@ import irods.keywords as kw
 from minio import Minio
 
 import base64
+import hashlib
+import io
 import os
 
 
@@ -271,7 +273,7 @@ def register_file(hdlr_mod, logger, session, meta, **options):
     )
 
 
-def upload_file(logger, session, meta, op, **options):
+def upload_file(hdlr_mod, logger, session, meta, op, **options):
     """
     Function called from sync_irods.sync_file and sync_irods.upload_file, for S3 objects
 
@@ -359,7 +361,7 @@ def upload_file(logger, session, meta, op, **options):
     # Single stream should happen for files <= 32MiB or for op=PUT_APPEND
     else:
         # Ensures tsize is not None
-        tsize = size(session, dest_dataobj_logical_fullpath) or 0
+        tsize = irods_utils.size(session, dest_dataobj_logical_fullpath) or 0
         logger.info(
             "Single stream put",
             task="irods_S3upload_file",
