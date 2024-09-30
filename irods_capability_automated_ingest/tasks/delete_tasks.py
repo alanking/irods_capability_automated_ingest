@@ -116,7 +116,7 @@ def delete_data_objects(self, meta):
             irods_utils.delete_data_object(event_handler.get_module(), meta_for_task)
         except DataObjectDoesNotExist:
             logger.error(
-                f"Data object [{logical_path}] does not exist, so it cannot be delete."
+                f"Data object [{logical_path}] does not exist, so it cannot be deleted."
             )
             continue
         except PycommandsException as e:
