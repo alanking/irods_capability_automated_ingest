@@ -1,3 +1,4 @@
+from . import delete_tasks
 from .. import sync_logging, utils
 from ..celery import app, RestartTask
 from ..char_map_util import translate_path
@@ -7,7 +8,6 @@ from ..redis_key import sync_time_key_handle
 from ..redis_utils import get_redis
 from ..sync_job import sync_job
 from .irods_task import IrodsTask
-from . import delete_tasks
 
 from irods.exception import (
     CollectionDoesNotExist,
