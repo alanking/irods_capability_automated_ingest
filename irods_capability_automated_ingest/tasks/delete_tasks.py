@@ -20,8 +20,8 @@ def schedule_collections_for_removal(meta, list_of_collections_to_delete):
     meta_for_task["queue_name"] = meta["path_queue"]
     meta_for_task["task"] = "delete_collection"
     for collection in list_of_collections_to_delete:
-        meta_for_task["path"] = collection.path
-        meta_for_task["target_collection"] = collection.path
+        meta_for_task["path"] = collection
+        meta_for_task["target_collection"] = collection
         enqueue_task(delete_collection, meta_for_task)
 
 
@@ -35,7 +35,7 @@ def schedule_data_objects_for_removal(meta, list_of_objects_to_delete):
     removal_chunk = []
     chunk_size = meta_for_task.get("files_per_task", 50)
     for obj in list_of_objects_to_delete:
-        removal_chunk.append(obj.path)
+        removal_chunk.append(obj)
         if len(removal_chunk) == chunk_size:
             meta_for_task["data_objects_to_delete"] = removal_chunk
             enqueue_task(delete_data_objects, meta_for_task)
@@ -76,8 +76,8 @@ def delete_collection(self, meta):
     if 0 == len(target_collection.data_objects) and 0 == len(
         target_collection.subcollections
     ):
-        logger.debug(f"Removing empty collection [{target_collection.path}].")
-        meta_for_task["target"] = target_collection.path
+        logger.debug(f"Removing empty collection [{target_collection}].")
+        meta_for_task["target"] = target_collection
         irods_utils.delete_collection(event_handler.get_module(), meta_for_task)
         return
     if meta.get("only_delete_collection"):
@@ -85,7 +85,7 @@ def delete_collection(self, meta):
             f"Collection [{logical_path}] could not be removed because it is not empty."
         )
         return
-    meta_for_task["delete_empty_parent_collection"] = target_collection.path
+    meta_for_task["delete_empty_parent_collection"] = target_collection
     # The subcollections should be scheduled for removal before the data objects because there could be deep
     # subcollections with many data objects.
     schedule_collections_for_removal(meta_for_task, target_collection.subcollections)

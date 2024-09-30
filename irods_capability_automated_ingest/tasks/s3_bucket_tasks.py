@@ -44,7 +44,7 @@ def get_collections_and_data_objects_in_collection(meta, destination_collection)
     config = meta["config"]
     logging_config = config["log"]
     logger = sync_logging.get_sync_logger(logging_config)
-    # Get ALL of the items in this collection (non-recursive). Warning: This could take up a lot of memory...
+    # Get ALL of the data objects under this collection (recursive). Warning: This could take up a lot of memory...
     try:
         return irods_utils.list_collection(meta, logger, destination_collection)
     except CollectionDoesNotExist:
@@ -199,13 +199,14 @@ def s3_bucket_sync_path(self, meta):
 
         delete_extraneous_items = utils.DeleteMode.DO_NOT_DELETE != delete_mode
         if delete_extraneous_items:
-            subcollections_in_collection, data_objects_in_collection = (
-                get_collections_and_data_objects_in_collection(
-                    meta, destination_collection
+            # subcollections_in_collection = []
+            data_objects_in_collection = (
+                irods_utils.list_all_data_objects_under_collection(
+                    meta, logger, destination_collection
                 )
             )
         else:
-            subcollections_in_collection = []
+            # subcollections_in_collection = []
             data_objects_in_collection = []
 
         logger.info(f"data objects in collection:[{data_objects_in_collection}]")
@@ -242,9 +243,10 @@ def s3_bucket_sync_path(self, meta):
             chunk[full_path] = obj_stats
 
             if delete_extraneous_items:
-                for obj in data_objects_in_collection:
-                    if destination_logical_path == obj.path:
-                        data_objects_in_collection.remove(obj)
+                for data_object in data_objects_in_collection:
+                    logger.info(f"{destination_logical_path} == {data_object} ???")
+                    if destination_logical_path == data_object:
+                        data_objects_in_collection.remove(data_object)
                         break
 
             # Launch async job when enough objects are ready to be sync'd
@@ -266,20 +268,20 @@ def s3_bucket_sync_path(self, meta):
         # Anything left over in the items in the collection should be removed.
         if delete_extraneous_items:
             # Schedule removal of all the missing items...
-            logger.debug(
+            logger.info(
                 f"objects to delete from [{destination_collection}]: {data_objects_in_collection}"
             )
-            #logger.debug(
-                #f"collections to delete from [{destination_collection}]: {subcollections_in_collection}"
-            #)
+            # logger.debug(
+            # f"collections to delete from [{destination_collection}]: {subcollections_in_collection}"
+            # )
             if data_objects_in_collection:
                 delete_tasks.schedule_data_objects_for_removal(
                     meta, data_objects_in_collection
                 )
-            #if subcollections_in_collection:
-                #delete_tasks.schedule_collections_for_removal(
-                    #meta, subcollections_in_collection
-                #)
+            # if subcollections_in_collection:
+            # delete_tasks.schedule_collections_for_removal(
+            # meta, subcollections_in_collection
+            # )
 
     except Exception as err:
         event_handler = custom_event_handler(meta)

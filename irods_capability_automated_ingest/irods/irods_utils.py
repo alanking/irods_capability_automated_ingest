@@ -2,6 +2,8 @@ from .. import custom_event_handler, sync_logging
 from ..redis_utils import get_redis
 from ..utils import DeleteMode, Operation
 
+from irods.column import Like
+from irods.data_object import iRODSDataObject
 from irods.exception import CollectionDoesNotExist, NetworkException
 from irods.models import Collection, DataObject, Resource
 from irods.session import iRODSSession
@@ -257,10 +259,16 @@ def size(session, path, replica_num=None, resc_name=None):
 def list_collection(meta, logger, logical_path):
     event_handler = custom_event_handler.custom_event_handler(meta)
     session = irods_session(event_handler.get_module(), meta, logger, **dict())
-
     collection = session.collections.get(logical_path)
+    return [coll.path for coll in collection.subcollections], [obj.path for obj in collection.data_objects]
 
-    return collection.subcollections, collection.data_objects
+
+def list_all_data_objects_under_collection(meta, logger, logical_path):
+    event_handler = custom_event_handler.custom_event_handler(meta)
+    session = irods_session(event_handler.get_module(), meta, logger, **dict())
+    query = session.query(Collection, DataObject).filter(Like(Collection.name, f"{logical_path}/%"))
+    return ["/".join([result[Collection.name], result[DataObject.name]]) for result in query]
+    #return [result[DataObject.path] for result in query]
 
 
 def unregister_data_object(hdlr_mod, session, meta, **options):
