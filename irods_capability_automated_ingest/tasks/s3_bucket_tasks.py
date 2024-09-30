@@ -1,14 +1,15 @@
-from .. import sync_logging
+from . import delete_tasks
+from .. import sync_logging, utils
 from ..celery import app, RestartTask
 from ..char_map_util import translate_path
 from ..custom_event_handler import custom_event_handler
-from ..irods import s3_bucket
+from ..irods import s3_bucket, irods_utils
 from ..redis_key import sync_time_key_handle
 from ..redis_utils import get_redis
 from ..sync_job import sync_job
-from ..utils import enqueue_task, is_unicode_encode_error_path
 from .irods_task import IrodsTask
 
+# See https://github.com/celery/celery/issues/5362 for information about billiard and Celery.
 from billiard import current_process
 from minio import Minio
 
@@ -21,12 +22,43 @@ import stat
 import traceback
 
 
+def get_destination_collection_for_sync(meta):
+    config = meta["config"]
+    logging_config = config["log"]
+    logger = sync_logging.get_sync_logger(logging_config)
+
+    path_being_synced = meta["path"]
+    root_source_directory = meta["root"]
+    target_collection = meta["target"]
+
+    logger.debug(f"target_collection: [{target_collection}]")
+    shared_path_component = meta["s3_prefix"]
+    logger.debug(f"shared_path_component: [{shared_path_component}]")
+    # TODO(#???): This will not work on mapped collections, UnicodeEncodeError, etc.
+    if shared_path_component:
+        return "/".join([target_collection, shared_path_component])
+    return target_collection
+
+
+def get_collections_and_data_objects_in_collection(meta, destination_collection):
+    config = meta["config"]
+    logging_config = config["log"]
+    logger = sync_logging.get_sync_logger(logging_config)
+    # Get ALL of the items in this collection (non-recursive). Warning: This could take up a lot of memory...
+    try:
+        return irods_utils.list_collection(meta, logger, destination_collection)
+    except CollectionDoesNotExist:
+        # If the collection does not exist, that means there's nothing to delete, so just make an empty list.
+        return [], []
+
+
 @app.task(base=RestartTask)
 def s3_bucket_main_task(meta):
     # Start periodic job on restart_queue
     job_name = meta["job_name"]
     restart_queue = meta["restart_queue"]
     interval = meta["interval"]
+    meta["root_target_collection"] = meta["target"]
     if interval is not None:
         restart.s(meta).apply_async(
             task_id=job_name, queue=restart_queue, countdown=interval
@@ -53,7 +85,7 @@ def s3_bucket_main_task(meta):
             meta = meta.copy()
             meta["task"] = "s3_bucket_sync_path"
             meta["queue_name"] = meta["path_queue"]
-            enqueue_task(s3_bucket_sync_path, meta)
+            utils.enqueue_task(s3_bucket_sync_path, meta)
         else:
             logger.info("tasks exist for this job or worker handling this task is busy")
 
@@ -77,6 +109,8 @@ def s3_bucket_sync_path(self, meta):
     logging_config = config["log"]
 
     logger = sync_logging.get_sync_logger(logging_config)
+
+    event_handler = custom_event_handler(meta)
 
     proxy_url = meta.get("s3_proxy_url")
     if proxy_url is None:
@@ -110,6 +144,18 @@ def s3_bucket_sync_path(self, meta):
         meta = meta.copy()
         meta["task"] = "s3_bucket_sync_dir"
         chunk = {}
+
+        # Check to see whether the provided operation and delete_mode are compatible.
+        delete_mode = event_handler.delete_mode()
+        logger.debug(f"delete_mode: {delete_mode}")
+        # This is really over the top...
+        operation = event_handler.operation(
+            irods_utils.irods_session(event_handler, meta, logger)
+        )
+        if not utils.delete_mode_is_compatible_with_operation(delete_mode, operation):
+            raise RuntimeError(
+                f"operation [{operation}] and delete_mode [{delete_mode}] are incompatible."
+            )
 
         path_list = meta["path"].lstrip("/").split("/", 1)
         bucket_name = path_list[0]
@@ -148,11 +194,37 @@ def s3_bucket_sync_path(self, meta):
         file_regex = [re.compile(r) for r in exclude_file_name]
         dir_regex = [re.compile(r) for r in exclude_directory_name]
 
+        destination_collection = get_destination_collection_for_sync(meta)
+        logger.info(f"destination_collection: [{destination_collection}]")
+
+        delete_extraneous_items = utils.DeleteMode.DO_NOT_DELETE != delete_mode
+        if delete_extraneous_items:
+            subcollections_in_collection, data_objects_in_collection = (
+                get_collections_and_data_objects_in_collection(
+                    meta, destination_collection
+                )
+            )
+        else:
+            subcollections_in_collection = []
+            data_objects_in_collection = []
+
+        logger.info(f"data objects in collection:[{data_objects_in_collection}]")
+
         for obj in itr:
             obj_stats = {}
 
             full_path = obj.object_name
-            full_path = obj.object_name
+
+            # If we see a destination logical path which is being synced, remove it from the list. Whatever is left
+            # after iterating through all the items in this directory will be removed.
+            if prefix:
+                destination_logical_path = "/".join(
+                    [destination_collection, prefix, full_path.split("/")[-1]]
+                )
+            else:
+                destination_logical_path = "/".join(
+                    [destination_collection, full_path.split("/")[-1]]
+                )
 
             if obj.object_name.endswith("/"):
                 # TODO: Not sure what this means -- skip it?
@@ -169,21 +241,45 @@ def s3_bucket_sync_path(self, meta):
             }
             chunk[full_path] = obj_stats
 
+            if delete_extraneous_items:
+                for obj in data_objects_in_collection:
+                    if destination_logical_path == obj.path:
+                        data_objects_in_collection.remove(obj)
+                        break
+
             # Launch async job when enough objects are ready to be sync'd
             files_per_task = meta.get("files_per_task")
             if len(chunk) >= files_per_task:
                 sync_files_meta = meta.copy()
                 sync_files_meta["chunk"] = chunk
                 sync_files_meta["queue_name"] = meta["file_queue"]
-                enqueue_task(s3_bucket_sync_files, sync_files_meta)
+                utils.enqueue_task(s3_bucket_sync_files, sync_files_meta)
                 chunk.clear()
 
         if len(chunk) > 0:
             sync_files_meta = meta.copy()
             sync_files_meta["chunk"] = chunk
             sync_files_meta["queue_name"] = meta["file_queue"]
-            enqueue_task(s3_bucket_sync_files, sync_files_meta)
+            utils.enqueue_task(s3_bucket_sync_files, sync_files_meta)
             chunk.clear()
+
+        # Anything left over in the items in the collection should be removed.
+        if delete_extraneous_items:
+            # Schedule removal of all the missing items...
+            logger.debug(
+                f"objects to delete from [{destination_collection}]: {data_objects_in_collection}"
+            )
+            #logger.debug(
+                #f"collections to delete from [{destination_collection}]: {subcollections_in_collection}"
+            #)
+            if data_objects_in_collection:
+                delete_tasks.schedule_data_objects_for_removal(
+                    meta, data_objects_in_collection
+                )
+            #if subcollections_in_collection:
+                #delete_tasks.schedule_collections_for_removal(
+                    #meta, subcollections_in_collection
+                #)
 
     except Exception as err:
         event_handler = custom_event_handler(meta)
@@ -238,7 +334,7 @@ def s3_bucket_sync_entry(self, meta_input, datafunc, metafunc):
     logger.info("synchronizing " + entry_type + ". path = " + path)
 
     character_map = getattr(event_handler.get_module(), "character_map", None)
-    path_requires_UnicodeEncodeError_handling = is_unicode_encode_error_path(path)
+    path_requires_UnicodeEncodeError_handling = utils.is_unicode_encode_error_path(path)
 
     # TODO: Pull out this logic into some functions
     if path_requires_UnicodeEncodeError_handling or character_map is not None:
