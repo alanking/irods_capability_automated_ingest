@@ -81,11 +81,10 @@ def get_destination_collection_for_sync(meta):
     ).lstrip("./")
     logger.debug(f"shared_path_component: [{shared_path_component}]")
     # TODO(#250): This may not work on Windows...
-    # TODO(#???): This will not work on mapped collections, UnicodeEncodeError, etc.
+    # TODO(#261): This will not work on mapped collections, UnicodeEncodeError, etc.
     if shared_path_component:
         return "/".join([root_target_collection, shared_path_component])
-    else:
-        return root_target_collection
+    return root_target_collection
 
 
 def get_collections_and_data_objects_in_collection(meta, destination_collection):
@@ -170,7 +169,6 @@ def filesystem_sync_path(self, meta):
         # Check to see whether the provided operation and delete_mode are compatible.
         delete_mode = event_handler.delete_mode()
         logger.debug(f"delete_mode: {delete_mode}")
-        # This is really over the top...
         operation = event_handler.operation(
             irods_utils.irods_session(event_handler, meta, logger)
         )
